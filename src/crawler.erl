@@ -1,6 +1,13 @@
 -module(crawler).
-
+-export([start/1, start/2, start_dist/1, crawl/0]).
 -define(UA, "Mozilla/5.0 (Erlang http:request)").
+
+%% This represents a process that will expand the 'data-horizon'.
+%% Typically, many of these will be started on different nodes.
+%% Its purpose is to take a list of unvisited urls and classify them 
+%% as either XML or HTML. XML links are returned as is, whereas HTML 
+%% links are visited and all links they contain harvested for the next
+%% cycle
 
 %% -----------------------------------------------------------------------------------------
 
@@ -26,7 +33,7 @@ start(N, L) when N == 0 ->
 %% Returns list of Pids
 
 start_dist(Nodes) ->
-    lists:map(fun({Name, Num}) -> ct_rpc:call(Name, crawler, start, [Num], 5000) end,
+    lists:map(fun({Name, Num}) -> ct_rpc:call(Name, crawler, start, [Num], 5000) end, 
               Nodes).
 
 
@@ -47,10 +54,10 @@ init_client() ->
 crawl() -> 
     receive
         {From, {url, List}} -> 
-            New = do_process(List, From),
-            From ! {self(), New};
+            do_process(List, From),
+            From ! {self(), new};
         {From, status} -> 
-            {ok, Pid} = cpu_sup:start(),
+            {ok, _} = cpu_sup:start(),
             From ! {self(), cpu_sup:avg5()}
     end,
     crawl().
@@ -61,8 +68,8 @@ crawl() ->
 %% Visit each link, send back all feeds and new links
 
 do_process(Urls, Mstr) -> 
-    {Html, Xml} = lists:foldl(segregate, {[], []}, Urls),
-    NewLinks = lists:map(reduce_html, Html),
+    {Html, Xml} = lists:foldl(fun(X, Y) -> segregate(X, Y) end, {[], []}, Urls),
+    NewLinks = lists:map(fun(X) -> reduce_html(X) end, Html),
     Mstr ! {self(), {NewLinks, Xml}}.
 
 
@@ -72,11 +79,11 @@ do_process(Urls, Mstr) ->
 
 segregate(X, {Html, Xml}) -> 
     {Headers, Body} = get_http(X),
-    [{_, Mime}] = lists:filter(is_content_type, Headers),
+    [{_, Mime}] = lists:filter(fun(H) -> is_content_type(H) end, Headers),
     {ok, Xmlre} = re:compile("text\/xml"),
-    case re:run(Xmlre) of
-        {match, _} -> Ret = [X|Xml];
-        _ -> Ret = [Body|Html]
+    case re:run(Mime, Xmlre) of
+        {match, _} -> Ret = {Html, [X|Xml]};
+        _ -> Ret = {[Body|Html], Xml}
     end,
     Ret.
     
@@ -96,7 +103,7 @@ is_content_type({K, _}) ->
 
 %% retrieves headers and body from a url
 
-get_html(Url) -> 
+get_http(Url) -> 
     {ok, {{HttpVer, Code, Msg}, Headers, Body}} = http:request(get, {Url, [{"User-Agent", ?UA}]}, [], []),
     {Headers, Body}.
 
@@ -107,13 +114,21 @@ get_html(Url) ->
 
 reduce_html(Html) ->
     Soup = qrly_html:parse_string(Html),
-    Reduced = lists:map(excise_links, qrly:filter(Soup, "a")),
+    Reduced = lists:map(fun(X) -> excise_links(X) end, qrly_html:filter(Soup, "a")),
     lists:flatten(Reduced).
 
 
+%% -----------------------------------------------------------------------------------------
+
 %% find all the links in the given qrly filter response
+
 excise_links({_, Content, _}) ->
-    [{_, Link}] = lists:filter( fun({X, _}) -> X =:= <<"href">> end, Content),
-    Link.
+    case lists:filter(fun(X) -> matches_href(X) end, Content) of
+        [{_, Link}] -> Ret = Link;
+        [] -> Ret = []
+    end,
+    Ret.
 
-
+matches_href(X) -> 
+    [H|_] = tuple_to_list(X),
+    H =:= <<"href">>.

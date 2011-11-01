@@ -83,7 +83,7 @@ segregate(X, {Html, Xml}) ->
     {ok, Xmlre} = re:compile("text\/xml"),
     case re:run(Mime, Xmlre) of
         {match, _} -> Ret = {Html, [X|Xml]};
-        _ -> Ret = {[Body|Html], Xml}
+        _ -> Ret = {[{X, Body}|Html], Xml}
     end,
     Ret.
     
@@ -110,12 +110,28 @@ get_http(Url) ->
 
 %% -----------------------------------------------------------------------------------------
 
-%% get all links from html content. 
+%% get all links from html content. Expand them if they are relative.
 
-reduce_html(Html) ->
+reduce_html({Url, Html}) ->
     Soup = qrly_html:parse_string(Html),
+    Root = find_url_root(Url),
     Reduced = lists:map(fun(X) -> excise_links(X) end, qrly_html:filter(Soup, "a")),
-    lists:flatten(Reduced).
+    Flattened = lists:flatten(Reduced),
+    lists:map(fun(L) -> restring_and_fortify(L, Root) end, Flattened).
+
+
+%% -----------------------------------------------------------------------------------------
+
+%% Get the root of the url given
+
+find_url_root(Url) -> 
+    {ok, Regex} = re:compile("(https?:\/\/.*?)\/"),
+    case re:run(Url, Regex) of
+        {match, [{_, _}, {_, Stop}]} -> {Root, _} = lists:split(Stop, Url);
+        _ -> Root = []
+    end,
+    Root.
+                                
 
 
 %% -----------------------------------------------------------------------------------------
@@ -128,6 +144,24 @@ excise_links({_, Content, _}) ->
         [] -> Ret = []
     end,
     Ret.
+
+
+%% -----------------------------------------------------------------------------------------
+
+%% Converts bitstring to a std string to ensure it is not relative. Returns the std string.
+
+restring_and_fortify(Link, Root) ->
+    Url = bitstring_to_list(Link),
+    {ok, Regex} = re:compile("https?:\/\/"),
+    case re:run(Url, Regex) of 
+        {match, _} -> Ret = Url;
+        _ -> Ret = Root ++ Url
+    end,
+    Ret.
+
+%% -----------------------------------------------------------------------------------------
+
+%% returns true if this tuple is href, otherwise false
 
 matches_href(X) -> 
     [H|_] = tuple_to_list(X),

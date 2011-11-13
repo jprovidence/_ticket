@@ -7,18 +7,25 @@ module Refinery
     xml     = XmlSimple.xml_in(xml)
     trimmed = trim(xml)
     root    = root_of(trimmed)
-    links   = links_in(trimmed)
 
     {:root     => root[:root], 
      :link_tag => root[:tag],
-     :links    => links
      :content  => trimmed}
 
   end
 
 
-  def self.links_in(data)
-    
+  def self.longest_tag(data)
+
+    high_water = {}
+
+    data.each do |k, v|
+      length = v.length
+      high_water = {:tag => k, :length => length} if v.length > high_water[:length]
+    end
+
+    high_water[:tag]
+
   end
 
 

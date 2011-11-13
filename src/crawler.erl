@@ -1,6 +1,5 @@
 -module(crawler).
 -export([start/1, start/2, start_dist/1, crawl/0]).
--define(UA, "Mozilla/5.0 (Erlang http:request)").
 
 %% This represents a process that will expand the 'data-horizon'.
 %% Typically, many of these will be started on different nodes.
@@ -14,7 +13,7 @@
 %% Start the number of crawlers requested, return list of pids
 
 start(Number) ->
-    init_client(), 
+    httpu:init_client(), 
     Pid = spawn(?MODULE, crawl, []),
     start(Number - 1, [Pid]).
 
@@ -35,15 +34,6 @@ start(N, L) when N == 0 ->
 start_dist(Nodes) ->
     lists:map(fun({Name, Num}) -> ct_rpc:call(Name, crawler, start, [Num], 5000) end, 
               Nodes).
-
-
-%% -----------------------------------------------------------------------------------------
-
-%% starts the inets http client
-
-init_client() ->
-    application:start(inets),
-    ok.
 
 
 %% -----------------------------------------------------------------------------------------
@@ -70,7 +60,7 @@ crawl() ->
 do_process(Urls, Mstr) -> 
     {Html, Xml} = lists:foldl(fun(X, Y) -> segregate(X, Y) end, {[], []}, Urls),
     NewLinks = lists:map(fun(X) -> reduce_html(X) end, Html),
-    Mstr ! {self(), {NewLinks, Xml}}.
+    Mstr ! {self(), {crawled, {NewLinks, Xml}}}.
 
 
 %% -----------------------------------------------------------------------------------------
@@ -78,9 +68,9 @@ do_process(Urls, Mstr) ->
 %% place xml links and html content of non-xml links in a tuple
 
 segregate(X, {Html, Xml}) -> 
-    {Headers, Body} = get_http(X),
+    {Headers, Body} = httpu:get_http(X),
     [{_, Mime}] = lists:filter(fun(H) -> is_content_type(H) end, Headers),
-    {ok, Xmlre} = re:compile("text\/xml"),
+    {ok, Xmlre} = re:compile("xml"),
     case re:run(Mime, Xmlre) of
         {match, _} -> Ret = {Html, [X|Xml]};
         _ -> Ret = {[{X, Body}|Html], Xml}
@@ -97,15 +87,6 @@ is_content_type({K, _}) ->
         "content-type" -> true;
         _ -> false
     end.
-
-
-%% -----------------------------------------------------------------------------------------
-
-%% retrieves headers and body from a url
-
-get_http(Url) -> 
-    {ok, {{HttpVer, Code, Msg}, Headers, Body}} = http:request(get, {Url, [{"User-Agent", ?UA}]}, [], []),
-    {Headers, Body}.
 
 
 %% -----------------------------------------------------------------------------------------

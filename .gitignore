@@ -2,3 +2,5 @@ ebin
 data
 deps
 *.beam
+Simple/config
+Simple/lib/neosql

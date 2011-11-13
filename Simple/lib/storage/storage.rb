@@ -16,9 +16,11 @@ module Storage
     desc_tag = description_tag(data)
 
     # create root node
+    root = ""
+
     unless NeoSQL::exists_node_with(:type => "root", :url  => data[:root])
-      node = NeoSQL::new_node
-      node.set(:type => "root", 
+      root = NeoSQL::new_node
+      root.set(:type => "root", 
                :url  => data[:root])
 
     end
@@ -32,11 +34,13 @@ module Storage
         entry.merge!({:type => "entry", :url => entry[data[:link_tag]]})
         x[0].set!(entry)
         set_relations_given(x[0], links)
+        root.relationship_with(x[0], "content")
       else
         entry.merge!({:type => "entry", :url => entry[data[:link_tag]]})
         node = NeoSQL::new_node
         node.set(entry)
         set_relations_given(node, links)
+        root.relationship_with(node, "content")
       end
 
     end

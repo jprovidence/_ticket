@@ -21,3 +21,13 @@ get_http(Url) ->
 
 
 %% -----------------------------------------------------------------------------------------
+
+%% retrieves the content-type from http response headers
+
+get_content_type(Headers) ->
+    lists:foldl(fun({Type, Val}, Acc) -> 
+                    case Type of
+                        "content-type" -> Val;
+                        _ -> Acc
+                    end,
+                end, [], Headers)

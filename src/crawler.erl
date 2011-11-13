@@ -48,7 +48,7 @@ crawl() ->
             From ! {self(), new};
         {From, status} -> 
             {ok, _} = cpu_sup:start(),
-            From ! {self(), cpu_sup:avg5()}
+            From ! {self(), {status, cpu_sup:avg5()}}
     end,
     crawl().
 

@@ -48,6 +48,9 @@ interface_distribute(Ints, Index) ->
         {From, int_request} -> 
             Int = lists:nth(Index, Ints),
             From ! {self(), {requested_int, Int}};
+        {From, init_int_request} -> 
+            Int = lists:nth(Index, Ints),
+            From ! {self(), {requested_init_int, Int}};
         _ -> 
             interface_distribute(Ints, Index)
     end,
@@ -74,6 +77,12 @@ pid_distribute(Pids, Index) ->
         {From, pid_request} -> 
             Pid = lists:nth(Index, Pids),
             From ! {self(), {requested_pid, Pid}};
+        {From, init_pid_request} ->
+            Pid = lists:nth(Index, Pids),
+            From ! {self(), {requested_init_pid, Pid}};
+        {From, length_pids} -> 
+            Length = length(Pids),
+            From ! {self(), {length_pids, Length}};
         _ -> 
             pid_distribute(Pids, Index)
     end,
@@ -115,11 +124,73 @@ spawn_interfaces(Num) ->
 
 listen() -> 
     receive
-        {From, init}} ->
-            Urls = interface:batch_unvisited_urls({batch_size, large});
-        {From, new} -> 
-            Urls = interface:batch_unvisited_urls({batch_size, small});
-        {From, {crawled, {NewLinks, XmlLinks}}} ->
-            interface:
-            
+        {From, {init, {PidDist, IntDist}}} ->
+            self() ! init,
+            listen(PidDist, IntDist)
+    end.
+
+listen(PidDist, IntDist) -> 
+    receive
+        %% initialization of all crawlers
+        init ->
+            IntDist ! {self(), init_int_request};
+        {From, {requested_init_int, Int}} -> 
+            Int ! {self(), large_batch_unvisited_urls};
+        {From, {large_batch_unvisited_urls, Urls}} -> 
+            Ent = spawn(?MODULE, entask_crawlers, []),
+            Ent ! {self(), {Urls, PidDist}};
+
+        %% restock a crawler
+        {From, new} ->
+            IntDist ! {self(), int_request};
+        {From, {requested_int, Int}} -> 
+            Int ! {self(), std_batch_unvisited_urls};
+        {From, {std_batch_unvisited_urls, Urls}} -> 
+            submit_to_crawler(self(), PidDist, Urls);
+
+        %% store feeds
+        
+
+
+%% -----------------------------------------------------------------------------------------
+
+%% dispatches the first round of crawlers
+
+entask_crawlers() -> 
+    receive
+        {From, {Urls, PidDist}} -> 
+            PidDist ! {self(), length_pids},
+            Respondant = From
+    end,
+    receive
+        {From, {length_pids, L}} -> 
+            LengthPids = L
+    end,
+    LengthUrls = length(Urls),
+    ModSubLists = (LengthUrls / LengthPids),
+    lists:foldl(fun(X, {Count, List}) -> 
+                    case Count of
+                        LengthUrls -> 
+                            submit_to_crawler(Respondant, PidDist, [X|List]),
+                            {1, []};
+                        ModSubLists -> 
+                            submit_to_crawler(Respondant, PidDist, [X|List]),
+                            {1, []};
+                        _ -> 
+                            {(Count + 1), [X|List]};
+                    end.
+                end, {1, []}, Urls).
+
+
+%% -----------------------------------------------------------------------------------------
+
+%% submits a list of urls to a crawler, given a crawler distributer
+
+submit_to_crawler(Respondant, PidDist, List)
+    PidDist ! {self(), pid_request},
+    receive
+        {From, {requested_pid, Pid}} -> 
+            Pid ! {Respondant, {url, List}}
+    end.
+                  
             

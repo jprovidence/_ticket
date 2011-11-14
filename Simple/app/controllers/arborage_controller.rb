@@ -6,6 +6,6 @@ class ArborageController < ApplicationController
   def receive
     ref = Refinery::refine(params[:raw])
     Storage::store(ref)
-  end 
+  end
 
 end

@@ -1,5 +1,6 @@
 -module(master).
--export([start_system/1, wait/0, interface_distribute/0, pid_distribute/0]).
+-export([start_system/1, wait/0, interface_distribute/0, pid_distribute/0, entask_crawlers/0, 
+store_crawl_results/0]).
 
 %% -----------------------------------------------------------------------------------------
 
@@ -152,7 +153,7 @@ wait(PidDist, IntDist) ->
         %% store feeds
         {From, {crawled, {NewLinks, Xml}}} ->
             Str = spawn(?MODULE, store_crawl_results, []),
-            Str ! {self, {IntDist, NewLinks, Xml}}
+            Str ! {self(), {IntDist, NewLinks, Xml}}
       end,
       wait(PidDist, IntDist).
 
@@ -163,13 +164,15 @@ wait(PidDist, IntDist) ->
 
 store_crawl_results() ->
     receive
-        {From, {IntDist, NewLinks, Xml}} -> 
-            IntDist ! {self(), int_request},
-            receive
-                {From, {requested_int, Int}} ->
-                    Int ! {self(), {store_feeds, Xml}},
-                    Int ! {self(), {store_unvisited, NewLinks}}
-            end
+        {_, {IntDist, NewLinks, Xml}} -> 
+            N = NewLinks,
+            X = Xml,
+            IntDist ! {self(), int_request}
+    end,
+    receive
+        {_, {requested_int, Int}} ->
+            Int ! {self(), {store_feeds, X}},
+            Int ! {self(), {store_unvisited, N}}
     end.    
 
 

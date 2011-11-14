@@ -1,4 +1,5 @@
 -module(master).
+-export([start_system/1, wait/0, interface_distribute/0, pid_distribute/0]).
 
 %% -----------------------------------------------------------------------------------------
 
@@ -16,7 +17,7 @@ start_system(NumCrawlers) ->
 
 %% spawns a process which distributes individual interface pids in a cycle
 
-spawn_interface_distributer(Ints),
+spawn_interface_distributer(Ints) -> 
     Dist = spawn(?MODULE, interface_distribute, []),
     Dist ! {self(), Ints},
     Dist.
@@ -26,7 +27,7 @@ spawn_interface_distributer(Ints),
 
 %% spawns a process which distributes individual crawler pids in a cycle
 
-spawn_pid_distributer(Pids),
+spawn_pid_distributer(Pids) -> 
     Dist = spawn(?MODULE, pid_distribute, []),
     Dist ! {self(), Pids},
     Dist.
@@ -54,7 +55,7 @@ interface_distribute(Ints, Index) ->
         _ -> 
             interface_distribute(Ints, Index)
     end,
-    ListLen = length(Ints)
+    ListLen = length(Ints),
     case (ListLen - Index) of
         0 -> interface_distribute(Ints, 1);
         _ -> interface_distribute(Ints, (Index + 1))
@@ -98,7 +99,7 @@ pid_distribute(Pids, Index) ->
 %% spawns the master
 
 spawn_listener(PidDist, IntDist) -> 
-    Listener = spawn(?MODULE, listen, []),
+    Listener = spawn(?MODULE, wait, []),
     Listener ! {self(), {init, {PidDist, IntDist}}}.
 
 
@@ -122,14 +123,14 @@ spawn_interfaces(Num) ->
 
 %% oversees the crawler system
 
-listen() -> 
+wait() -> 
     receive
         {From, {init, {PidDist, IntDist}}} ->
             self() ! init,
-            listen(PidDist, IntDist)
+            wait(PidDist, IntDist)
     end.
 
-listen(PidDist, IntDist) -> 
+wait(PidDist, IntDist) -> 
     receive
         %% initialization of all crawlers
         init ->
@@ -149,7 +150,27 @@ listen(PidDist, IntDist) ->
             submit_to_crawler(self(), PidDist, Urls);
 
         %% store feeds
-        
+        {From, {crawled, {NewLinks, Xml}}} ->
+            Str = spawn(?MODULE, store_crawl_results, []),
+            Str ! {self, {IntDist, NewLinks, Xml}}
+      end,
+      wait(PidDist, IntDist).
+
+
+%% -----------------------------------------------------------------------------------------
+
+%% handle storing results of web crawler
+
+store_crawl_results() ->
+    receive
+        {From, {IntDist, NewLinks, Xml}} -> 
+            IntDist ! {self(), int_request},
+            receive
+                {From, {requested_int, Int}} ->
+                    Int ! {self(), {store_feeds, Xml}},
+                    Int ! {self(), {store_unvisited, NewLinks}}
+            end
+    end.    
 
 
 %% -----------------------------------------------------------------------------------------
@@ -163,7 +184,7 @@ entask_crawlers() ->
             Respondant = From
     end,
     receive
-        {From, {length_pids, L}} -> 
+        {_, {length_pids, L}} -> 
             LengthPids = L
     end,
     LengthUrls = length(Urls),
@@ -177,8 +198,8 @@ entask_crawlers() ->
                             submit_to_crawler(Respondant, PidDist, [X|List]),
                             {1, []};
                         _ -> 
-                            {(Count + 1), [X|List]};
-                    end.
+                            {(Count + 1), [X|List]}
+                    end
                 end, {1, []}, Urls).
 
 
@@ -186,7 +207,7 @@ entask_crawlers() ->
 
 %% submits a list of urls to a crawler, given a crawler distributer
 
-submit_to_crawler(Respondant, PidDist, List)
+submit_to_crawler(Respondant, PidDist, List) ->
     PidDist ! {self(), pid_request},
     receive
         {From, {requested_pid, Pid}} -> 

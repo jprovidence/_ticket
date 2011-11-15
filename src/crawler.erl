@@ -68,12 +68,43 @@ do_process(Urls, Mstr) ->
 %% place xml links and html content of non-xml links in a tuple
 
 segregate(X, {Html, Xml}) -> 
-    {Headers, Body} = httpu:get_http(X),
-    [{_, Mime}] = lists:filter(fun(H) -> is_content_type(H) end, Headers),
-    {ok, Xmlre} = re:compile("xml"),
-    case re:run(Mime, Xmlre) of
-        {match, _} -> Ret = {Html, [X|Xml]};
-        _ -> Ret = {[{X, Body}|Html], Xml}
+    Result = safe_get(X),
+    case Result of
+        {err, err} -> 
+            Ret = {Html, Xml};
+        {Headers, Body} -> 
+            [{_, Mime}] = lists:filter(fun(H) -> is_content_type(H) end, Headers),
+            {ok, Xmlre} = re:compile("xml"),
+            case re:run(Mime, Xmlre) of
+                {match, _} -> Ret = {Html, [X|Xml]};
+                _ -> Ret = {[{X, Body}|Html], Xml}
+            end
+    end,
+    Ret.
+
+
+%% -----------------------------------------------------------------------------------------
+
+%% safely visit a url which may or may not be malformed
+
+safe_get(Url) ->
+    {Pid, Ref} = spawn_monitor(fun() -> 
+                                   Resp = httpu:get_http(Url),
+                                   receive
+                                       {From, return} -> 
+                                           From ! {self(), Resp}
+                                   end
+                               end),
+    Pid ! {self(), return},
+    receive
+        {From, X} ->
+            erlang:display("success" ++ Url),
+            Ret = X,
+            erlang:demonitor(Ref);
+        {'DOWN', _, _, _, _} ->
+            erlang:display("err" ++ Url),
+            Ret = {err, err},
+            erlang:demonitor(Ref)
     end,
     Ret.
     

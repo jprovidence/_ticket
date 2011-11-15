@@ -11,4 +11,15 @@ class DetritusController < ApplicationController
 
   end
 
+
+  def receive
+    
+    Detritus.receive(request.body)
+
+    respond_to do 
+      render :nothing => true
+    end
+
+  end
+
 end

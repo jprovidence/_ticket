@@ -9,7 +9,7 @@ store_crawl_results/0]).
 start_system(NumCrawlers) ->
     Pids = spawn_crawlers(NumCrawlers),
     PidDist = spawn_pid_distributer(Pids),
-    Ints = spawn_interfaces(10),
+    Ints = spawn_interfaces(NumCrawlers),
     IntDist = spawn_interface_distributer(Ints),
     spawn_listener(PidDist, IntDist).
 
@@ -191,13 +191,14 @@ entask_crawlers() ->
             LengthPids = L
     end,
     LengthUrls = length(Urls),
-    ModSubLists = (LengthUrls / LengthPids),
+    Div = (LengthUrls / LengthPids),
+    ModSubLists = trunc(Div),
     lists:foldl(fun(X, {Count, List}) -> 
                     case Count of
-                        LengthUrls -> 
+                        LengthUrls ->
                             submit_to_crawler(Respondant, PidDist, [X|List]),
                             {1, []};
-                        ModSubLists -> 
+                        ModSubLists ->
                             submit_to_crawler(Respondant, PidDist, [X|List]),
                             {1, []};
                         _ -> 

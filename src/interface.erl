@@ -32,8 +32,23 @@ wait() ->
             {_, Links} = mochijson:decode(Body),
             From ! {self(), {std_batch_unvisited_urls, Links}};
         {From, {store_feeds, Xml}} ->
-            {Headers, Body} = httpu:get_http(Xml),
-            {Response} = httpu:post_http("http://localhost:3000/arborage/receive", Body);
-        {From, {store_unvisited, Urls}} -> 
-            {Response} = httpu:post_http("http://localhost:3000/detritus/receive", Urls)
-    end.
+            case length(Xml) of
+                0 -> "";
+                _ -> httpu:post_http("http://localhost:3000/arborage/receive", Xml)
+            end;
+        {From, {store_unvisited, Urls}} ->
+            Furls = lists:foldl(fun(X, Acc) ->
+                                    X ++ Acc
+                                end, [], Urls),
+            ToSend = lists:foldl(fun(X, Str) ->
+                                     case Str of
+                                         "" -> X;
+                                         _ -> T = "," ++ Str,
+                                                  X ++ T
+                                     end
+                                 end, "", Furls),
+            httpu:post_http("http://localhost:3000/detritus/receive", ToSend)
+    end,
+    wait().
+
+

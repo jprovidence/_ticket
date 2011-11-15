@@ -1,5 +1,5 @@
 -module(crawler).
--export([start/1, start/2, start_dist/1, crawl/0]).
+-export([start/1, start/2, start_dist/1, crawl/0, safe_get/1]).
 
 %% This represents a process that will expand the 'data-horizon'.
 %% Typically, many of these will be started on different nodes.
@@ -100,7 +100,10 @@ safe_get(Url) ->
         {From, X} ->
             erlang:display("success" ++ Url),
             Ret = X,
-            erlang:demonitor(Ref);
+            receive
+                {'DOWN', _, _, _, _} -> 
+                    erlang:demonitor(Ref)
+            end;
         {'DOWN', _, _, _, _} ->
             erlang:display("err" ++ Url),
             Ret = {err, err},

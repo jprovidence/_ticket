@@ -1,10 +1,19 @@
 module Refinery
 
+  require 'rubygems'
   require 'xmlsimple'
+  require 'net/http'
+  require 'uri'
 
-  def self.refine(xml)
+  def self.refine(url)
 
-    xml     = XmlSimple.xml_in(xml)
+    uri = URI.parse(url)
+    req = Net::HTTP::Get.new(uri.path)
+    res = Net::HTTP.start(uri.host, uri.port) do |http|
+      http.request(req)
+    end
+
+    xml     = XmlSimple.xml_in(res.body)
     trimmed = trim(xml)
     root    = root_of(trimmed)
 

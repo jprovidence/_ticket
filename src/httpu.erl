@@ -16,7 +16,8 @@ init_client() ->
 %% retrieves headers and body from a url
 
 get_http(Url) -> 
-    {ok, {{HttpVer, Code, Msg}, Headers, Body}} = http:request(get, {Url, [{"User-Agent", ?UA}]}, [], []),
+    {ok, {{HttpVer, Code, Msg}, Headers, Body}} = http:request(get, {Url, [{"User-Agent", ?UA}]},
+        [{relaxed, true}, {timeout, 60000}], []),
     {Headers, Body}.
 
 

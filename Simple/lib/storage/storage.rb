@@ -14,52 +14,90 @@ module Storage
   def self.store_raw(data)
 
     desc_tag = description_tag(data)
+    root     = find_or_create(:type => "root", 
+                              :url => data[:root])
 
-    # create root node
-    root = ""
+    root_idx = NeoSQL::Index.get_index("root") || NeoSQL::Index.create("root")
+    root_idx.add(root, "url", data[:root])
 
-    unless NeoSQL::exists_node_with(:type => "root", :url  => data[:root])
-      root = NeoSQL::new_node
-      root.set(:type => "root", 
-               :url  => data[:root])
-
-    end
-
-    # create content nodes
     data[:content].each do |entry|
 
-      links = links_in(desc_tag, entry)
+      entry.merge!(:type => "entry",
+                   :url  => entry[data[:link_tag]])
 
-      if (x = NeoSQL::exists_node_with(:type => "placeholder", :url  => entry[data[:link_tag]]))
-        entry.merge!({:type => "entry", :url => entry[data[:link_tag]]})
-        x[0].set!(entry)
-        set_relations_given(x[0], links)
-        root.relationship_with(x[0], "content")
-      else
-        entry.merge!({:type => "entry", :url => entry[data[:link_tag]]})
-        node = NeoSQL::new_node
-        node.set(entry)
-        set_relations_given(node, links)
-        root.relationship_with(node, "content")
-      end
+      links = links_in(desc_tag, entry)
+      node  = find_or_create(entry)
+
+      node_idx = NeoSQL::Index.get_index("article") || NeoSQL::Index.create("article")
+      node_idx.add(node, "url", entry[data[:link_tag]])
+
+      set_relations_given(node, links)
+      root.relationship_with(node, "content")
 
     end
 
   end
 
 
+  def self.find_or_create(hash)
+
+    case hash[:type]
+
+    when "root"
+
+      nary = NeoSQL::Index.find_exact("root", "url", hash[:url])
+
+      if nary.empty?
+        node = NeoSQL::Node.new
+        node.set(hash)
+        return node
+      else
+        return nary[0]
+      end
+
+    when "entry"
+
+      nary = NeoSQL::Index.find_exact("article", "url", hash[:url])
+
+      if nary.empty?
+        node = NeoSQL::Node.new
+        node.set(hash)
+        return node
+      else
+
+        node = nary[0]
+
+        case node.type
+        when "placeholder"
+          node.update(hash)
+          return node
+        else
+          return node
+        end
+
+      end
+
+    else
+      return nil
+    end
+          
+  end
+
+
   def self.set_relations_given(node, links)
 
     links.group_by {|l| l}.each do |link, ary|
+      
+      idx = NeoSQL::Index.find_exact("article", "url", link)
 
-      if (existing = NeoSQL::exists_node_with(:url => link))
-        node.relationship_with(existing, "hyperlink", {:strength => ary.length.to_s})
-      else
-        new_node = NeoSQL::new_node
+      if idx.empty?
+        new_node = NeoSQL::Node.new
         new_node.set({:type => "placeholder", :url => link})
         node.relationship_with(new_node, "hyperlink", {:strength => ary.length.to_s})
+      else
+        node.relationship_with(idx[0], "hyperlink", {:strength => ary.length.to_s})
       end
-        
+
     end
 
   end

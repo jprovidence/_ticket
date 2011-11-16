@@ -27,7 +27,15 @@ class Detritus < ActiveRecord::Base
               else []
             end
       
-      rec.map {|r| r.link}
+      ret = []
+
+      rec.each do |r|
+        r.processed = 1
+        r.save!
+        ret << r.link
+      end
+
+      ret
 
     end
 

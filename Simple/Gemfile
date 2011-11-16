@@ -19,6 +19,7 @@ end
 gem 'jquery-rails'
 gem 'rspec'
 gem 'yajl-ruby'
+gem 'xml-simple'
 gem 'pg'
 
 # To use ActiveModel has_secure_password

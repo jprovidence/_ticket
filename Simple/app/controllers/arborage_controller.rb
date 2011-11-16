@@ -1,7 +1,7 @@
 class ArborageController < ApplicationController
 
-  require 'refinery'
-  require 'storage'
+  require './lib/refinery/refinery'
+  require './lib/storage/storage'
 
   def receive
     ref = Refinery::refine(params[:raw])

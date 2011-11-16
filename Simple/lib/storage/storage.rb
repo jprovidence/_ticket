@@ -1,6 +1,6 @@
 module Storage
 
-  require 'neosql'
+  require './lib/neosql'
 
   def self.store(data)
     

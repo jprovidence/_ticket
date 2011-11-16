@@ -11,7 +11,7 @@
 #
 # It's strongly recommended to check this file into your version control system.
 
-ActiveRecord::Schema.define(:version => 20111114070055) do
+ActiveRecord::Schema.define(:version => 20111116011258) do
 
   create_table "detritus", :force => true do |t|
     t.text     "link"
@@ -19,5 +19,7 @@ ActiveRecord::Schema.define(:version => 20111114070055) do
     t.datetime "created_at"
     t.datetime "updated_at"
   end
+
+  add_index "detritus", ["link"], :name => "index_detritus_on_link", :unique => true
 
 end

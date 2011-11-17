@@ -1,66 +1,45 @@
 -module(crawler).
--export([start/1, start/2, start_dist/1, crawl/0, safe_get/1]).
-
-%% This represents a process that will expand the 'data-horizon'.
-%% Typically, many of these will be started on different nodes.
-%% Its purpose is to take a list of unvisited urls and classify them 
-%% as either XML or HTML. XML links are returned as is, whereas HTML 
-%% links are visited and all links they contain harvested for the next
-%% cycle
-
-%% -----------------------------------------------------------------------------------------
-
-%% Start the number of crawlers requested, return list of pids
-
-start(Number) ->
-    httpu:init_client(), 
-    Pid = spawn(?MODULE, crawl, []),
-    start(Number - 1, [Pid]).
-
-start(N, L) when N =/= 0 ->
-    Pid = spawn(?MODULE, crawl, []),
-    start(N - 1, [Pid|L]);
-
-start(N, L) when N == 0 -> 
-    L.
 
 
 %% -----------------------------------------------------------------------------------------
 
-%% Start the number of crawlers requested on the nodes given.
-%% @Nodes@ => [{node@name, number_to_start}, ...].
-%% Returns list of Pids
+%% coordinates crawling of links. Crawls links in batches of 1000, checking with Master
+%% to see if shutdown is received or crawl state terminated
 
-start_dist(Nodes) ->
-    lists:map(fun({Name, Num}) -> ct_rpc:call(Name, crawler, start, [Num], 5000) end, 
-              Nodes).
+crawl(Master) ->
+    Interface = spawn(?MODULE, interface, []),
+    Interace ! {self(), {link_request, 1000}}
+    crawl(Master, Interface).
 
-
-%% -----------------------------------------------------------------------------------------
-
-%% Either pull and parse html from a given link list or respond
-%% With this node's work level
-
-crawl() -> 
+crawl(Master, Interface) ->
     receive
-        {From, {url, List}} -> 
-            do_process(List, From),
-            From ! {self(), new};
-        {From, status} -> 
-            {ok, _} = cpu_sup:start(),
-            From ! {self(), {status, cpu_sup:avg5()}}
-    end,
-    crawl().
+        shutdown ->
+            Interface ! shutdown,
+            ok;
+        {From, ok} -> 
+            Interface ! {self(), {link_request, 1000}};
+        {From, stop} -> 
+            Interface ! shutdown,
+            ok;
+        {From, {link_request, Links}} -> 
+            do_process(Links, Interface),
+            Master ! {self(), {crawler, 1000}},
+            crawl(Master, Interface)
+    end.
 
 
 %% -----------------------------------------------------------------------------------------
 
-%% Visit each link, send back all feeds and new links
+%% Process the given urls and ship them to the Interface for Neo4j storage.
 
-do_process(Urls, Mstr) -> 
-    {Html, Xml} = lists:foldl(fun(X, Y) -> segregate(X, Y) end, {[], []}, Urls),
-    NewLinks = lists:map(fun(X) -> reduce_html(X) end, Html),
-    Mstr ! {self(), {crawled, {NewLinks, Xml}}}.
+do_process(Urls, Interface) -> 
+    {Html, Xml} = lists:foldl(fun(X, Acc) -> 
+                                  segregate(X, Acc)
+                              end, {[], []}, Urls),
+    NewLinks = lists:map(fun(X) -> 
+                             reduce_html(X)
+                         end, Html),
+    Interface ! {self(), {crawled, {NewLinks, Xml}}}.
 
 
 %% -----------------------------------------------------------------------------------------

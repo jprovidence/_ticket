@@ -1,221 +1,163 @@
 -module(master).
--export([start_system/1, wait/0, interface_distribute/0, pid_distribute/0, entask_crawlers/0, 
-store_crawl_results/0]).
 
 %% -----------------------------------------------------------------------------------------
 
-%% starts the web crawler on one machine only
+%% load the available machine list from disk. Load the current computation.
+%% start ProgamMonitor, which oversees switching between 'States'. 
 
-start_system(NumCrawlers) ->
-    Pids = spawn_crawlers(NumCrawlers),
-    PidDist = spawn_pid_distributer(Pids),
-    Ints = spawn_interfaces(NumCrawlers),
-    IntDist = spawn_interface_distributer(Ints),
-    spawn_listener(PidDist, IntDist).
-
-
-%% -----------------------------------------------------------------------------------------
-
-%% spawns a process which distributes individual interface pids in a cycle
-
-spawn_interface_distributer(Ints) -> 
-    Dist = spawn(?MODULE, interface_distribute, []),
-    Dist ! {self(), Ints},
-    Dist.
+start_system() -> 
+    Nodes = available_nodes(),
+    CurComp = current_computation(),
+    CurCount = current_count(),
+    ProgMonitor = spawn(?MODULE, program_monitor, [CurCount]),
+    Mstr = spawn(?MODULE, wait, [ProgMonitor]),
+    lists:map(fun(X) -> 
+                  fully_load(X, CurComp, Mstr)
+              end, Nodes),
+    Mstr.
 
 
 %% -----------------------------------------------------------------------------------------
 
-%% spawns a process which distributes individual crawler pids in a cycle
+%% collapses the initialisation/transition superposition based on the
+%% provided directive @Computation@" 
 
-spawn_pid_distributer(Pids) -> 
-    Dist = spawn(?MODULE, pid_distribute, []),
-    Dist ! {self(), Pids},
-    Dist.
-
-
-%% -----------------------------------------------------------------------------------------
-
-%% a process to distribute interface pids
-
-interface_distribute() -> 
-    receive
-        {From, Ints} -> interface_distribute(Ints, 1);
-        _ -> interface_distribute()
+fully_load(Node, Computation, Mstr) ->
+    case Computation of
+        "crawl" -> 
+            systemwide_crawl(Node, true, Mstr)
     end.
 
 
-interface_distribute(Ints, Index) ->
+%% -----------------------------------------------------------------------------------------
+
+%% recursively starts crawl processes on the provided node until the CPU is ~90%
+
+systemwide_crawl(Node, Init, Mstr) when Init =:= true ->
+    NodeName = lists:nth(1, string:tokens(Node, ",")),
+    spawn(NodeName, httpu, init_client, []),
+    Pid = spawn(NodeName, crawler, crawl, [Mstr]),
+    systemwide_crawl(Node, [Pid]);
+
+systemwide_crawl(Node, Pids, Mstr) when Pids =/= true ->
+    NodeName = lists:nth(1, string:tokens(Node, ",")),
+    Pid = spawn(NodeName, crawler, crawl, [Mstr]),
+    Pid ! {self(), status},
     receive
-        {From, int_request} -> 
-            Int = lists:nth(Index, Ints),
-            From ! {self(), {requested_int, Int}};
-        {From, init_int_request} -> 
-            Int = lists:nth(Index, Ints),
-            From ! {self(), {requested_init_int, Int}};
-        _ -> 
-            interface_distribute(Ints, Index)
+        {From, {status, Status}} -> 
+            case assess_status(lists:nth(2, string:tokens(Node, ",")), Status) of
+                ok -> systemwide_crawl(Node, [Pid|Pids]);
+                break -> Pids
+            end
+    end.
+
+
+%% -----------------------------------------------------------------------------------------
+
+%% determines whether or not the Node should start new processes based on CPU usage.
+
+assess_status(MaxLoad, Status) ->
+    case (Status < MaxLoad) of
+        true -> ok;
+        false -> break
+    end.
+
+
+%% -----------------------------------------------------------------------------------------
+
+%% convenience function to load the current state from disk 
+
+current_computation() ->
+    ComAry = fileu:read_by_line("./data/current_computation._ticket"),
+    lists:nth(1, ComAry).
+
+
+%% -----------------------------------------------------------------------------------------
+
+%% convenience function to load the progress of the current state from disk
+
+current_cout() -> 
+    CouAry = fileu:read_by_line("./data/current_count._ticket"),
+    lists:nth(1, CouAry).
+
+
+%% -----------------------------------------------------------------------------------------
+
+%% convenience function to load currently available nodes from disk
+
+available_nodes() -> 
+    fileu:read_by_line("./data/nodes._ticket").
+
+
+%% -----------------------------------------------------------------------------------------
+
+%% this function loops in its own process. It coordinates transitions between
+%% computational states
+
+program_monitor(Computation, Ticket) ->
+    receive
+        shutdown -> 
+            ok;
+        {From, ticket} -> 
+            From ! {From, {ticket, Computation, Ticket}};
+        {From, {crawler, Count}} ->
+            NewTicket = Ticket + Count,
+            case NewTicket < 1000000000 of 
+                true ->
+                    From ! {self(), {progmon, stop, "stitch graph"}]},
+                    program_monitor("stitch graph", 0);
+                false ->
+                    From ! {self(), {progmon, ok}},
+                    program_monitor(Computation, NewTicket)
+            end
+    end.
+
+
+%% -----------------------------------------------------------------------------------------
+
+%% Serves as a commuication channel between the user and system, monitor and individual 
+%% processes, etc... 
+
+wait(ProgMon) ->
+    receive
+        shutdown ->
+            perform_shutdown(ProgMon),
+            wait(ProgMon, shutdown);
+
+        {From, {crawler, Count}} ->
+            ProgMon ! {self(), {crawl, Count}},
+            receive
+                {_, {progmon, ok}} -> 
+                    From ! {self(), ok};
+                {_, {progmon, stop, NewTask}} ->
+                    From ! {self(), stop},
+                    lists:map(fun(X) ->
+                                  fully_load(X, NewTask, self())
+                              end, available_nodes())
+            end
     end,
-    ListLen = length(Ints),
-    case (ListLen - Index) of
-        0 -> interface_distribute(Ints, 1);
-        _ -> interface_distribute(Ints, (Index + 1))
-    end.
+    wait(ProgMon). 
 
-
-%% -----------------------------------------------------------------------------------------
-
-%% a process to distribute crawler pids
-
-pid_distribute() -> 
+wait(ProgMon, Shutdown) ->
     receive
-        {From, Pids} -> pid_distribute(Pids, 1);
-        _ -> pid_distribute()
-    end.
-
-
-pid_distribute(Pids, Index) -> 
-    receive
-        {From, pid_request} -> 
-            Pid = lists:nth(Index, Pids),
-            From ! {self(), {requested_pid, Pid}};
-        {From, init_pid_request} ->
-            Pid = lists:nth(Index, Pids),
-            From ! {self(), {requested_init_pid, Pid}};
-        {From, length_pids} -> 
-            Length = length(Pids),
-            From ! {self(), {length_pids, Length}};
-        _ -> 
-            pid_distribute(Pids, Index)
+        {From, _} -> From ! shutdown
     end,
-    ListLen = length(Pids),
-    case (ListLen - Index) of 
-        0 -> pid_distribute(Pids, 1);
-        _ -> pid_distribute(Pids, (Index + 1))
-    end.
+    wait(ProgMon, Shutdown).
 
 
 %% -----------------------------------------------------------------------------------------
 
-%% spawns the master
+%% shuts down all ProgMon, saves current state and progress 
 
-spawn_listener(PidDist, IntDist) -> 
-    Listener = spawn(?MODULE, wait, []),
-    Listener ! {self(), {init, {PidDist, IntDist}}}.
-
-
-%% -----------------------------------------------------------------------------------------
-
-%% spawns individual web crawlers
-
-spawn_crawlers(Num) -> 
-    crawler:start(Num).
-
-
-%% -----------------------------------------------------------------------------------------
-
-%% spawns individual interfaces
-
-spawn_interfaces(Num) -> 
-    interface:start(Num).
-
-
-%% -----------------------------------------------------------------------------------------
-
-%% oversees the crawler system
-
-wait() -> 
+perform_shutdown(ProgMon) ->
+    Ticket = ProgMon ! {self(), ticket},
     receive
-        {From, {init, {PidDist, IntDist}}} ->
-            self() ! init,
-            wait(PidDist, IntDist)
-    end.
-
-wait(PidDist, IntDist) -> 
-    receive
-        %% initialization of all crawlers
-        init ->
-            IntDist ! {self(), init_int_request};
-        {From, {requested_init_int, Int}} -> 
-            Int ! {self(), large_batch_unvisited_urls};
-        {From, {large_batch_unvisited_urls, Urls}} -> 
-            Ent = spawn(?MODULE, entask_crawlers, []),
-            Ent ! {self(), {Urls, PidDist}};
-
-        %% restock a crawler
-        {From, new} ->
-            IntDist ! {self(), int_request};
-        {From, {requested_int, Int}} -> 
-            Int ! {self(), std_batch_unvisited_urls};
-        {From, {std_batch_unvisited_urls, Urls}} -> 
-            submit_to_crawler(self(), PidDist, Urls);
-
-        %% store feeds
-        {From, {crawled, {NewLinks, Xml}}} ->
-            Str = spawn(?MODULE, store_crawl_results, []),
-            Str ! {self(), {IntDist, NewLinks, Xml}}
-      end,
-      wait(PidDist, IntDist).
-
-
-%% -----------------------------------------------------------------------------------------
-
-%% handle storing results of web crawler
-
-store_crawl_results() ->
-    receive
-        {_, {IntDist, NewLinks, Xml}} -> 
-            N = NewLinks,
-            X = Xml,
-            IntDist ! {self(), int_request}
+        {_, {ticket, Computation, Ticket}} -> 
+            fileu:write_by_line("./data/current_computation._ticket", Computation),
+            fileu:write_by_line("./data/current_count._ticket", Ticket)
     end,
-    receive
-        {_, {requested_int, Int}} ->
-            Int ! {self(), {store_feeds, X}},
-            Int ! {self(), {store_unvisited, N}}
-    end.    
+    ProgMon ! shutdown.
 
 
-%% -----------------------------------------------------------------------------------------
 
-%% dispatches the first round of crawlers
-
-entask_crawlers() -> 
-    receive
-        {From, {Urls, PidDist}} -> 
-            PidDist ! {self(), length_pids},
-            Respondant = From
-    end,
-    receive
-        {_, {length_pids, L}} -> 
-            LengthPids = L
-    end,
-    LengthUrls = length(Urls),
-    Div = (LengthUrls / LengthPids),
-    ModSubLists = trunc(Div),
-    lists:foldl(fun(X, {Count, List}) -> 
-                    case Count of
-                        LengthUrls ->
-                            submit_to_crawler(Respondant, PidDist, [X|List]),
-                            {1, []};
-                        ModSubLists ->
-                            submit_to_crawler(Respondant, PidDist, [X|List]),
-                            {1, []};
-                        _ -> 
-                            {(Count + 1), [X|List]}
-                    end
-                end, {1, []}, Urls).
-
-
-%% -----------------------------------------------------------------------------------------
-
-%% submits a list of urls to a crawler, given a crawler distributer
-
-submit_to_crawler(Respondant, PidDist, List) ->
-    PidDist ! {self(), pid_request},
-    receive
-        {From, {requested_pid, Pid}} -> 
-            Pid ! {Respondant, {url, List}}
-    end.
-                  
-            
+    

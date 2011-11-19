@@ -1,0 +1,8 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include "ladder.h"
+
+int main(void)
+{
+	exit(EXIT_SUCCESS);
+}

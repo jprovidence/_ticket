@@ -1,54 +1,36 @@
 -module(interface).
--export([start/1, wait/0]).
-
-%% -----------------------------------------------------------------------------------------
-
-%% starts the specified number of interfaces
-
-start(Number) ->
-    Pid = spawn(?MODULE, wait, []),
-    start(Number - 1, [Pid]).
-
-start(N, L) when N =/= 0 ->
-    Pid = spawn(?MODULE, wait, []),
-    start(N - 1, [Pid|L]);
-
-start(N, L) when N == 0 -> 
-    L.
-
+-export([interface/0]).
 
 %% -----------------------------------------------------------------------------------------
 
 %% waits to provide an interface to the Simple REST api
 
-wait() -> 
+interface() ->
     receive
-        {From, large_batch_unvisited_urls} -> 
-            {Headers, Body} = httpu:get_json_http("http://localhost:3000/detritus/pull?size=large"),
+        shutdown -> 
+            ok;
+        {From, {link_request, Number}} -> 
+            StrNum = integer_to_list(Number),
+            {Headers, Body} = httpu:get_json_http("http://localhost:3000/detritus/pull?size=" ++ StrNum),
             {_, Links} = mochijson:decode(Body),
-            From ! {self(), {large_batch_unvisited_urls, Links}};
-        {From, std_batch_unvisited_urls} -> 
-            {Headers, Body} = httpu:get_json_http("http://localhost:3000/detritus/pull?size=standard"),
-            {_, Links} = mochijson:decode(Body),
-            From ! {self(), {std_batch_unvisited_urls, Links}};
-        {From, {store_feeds, Xml}} ->
+            From ! {self(), {link_request, Links}},
+            interface();
+        {From, {crawled, {NewLinks, Xml}}} -> 
             case length(Xml) of
-                0 -> "";
+                0 -> ok;
                 _ -> httpu:post_http("http://localhost:3000/arborage/receive", Xml)
-            end;
-        {From, {store_unvisited, Urls}} ->
-            Furls = lists:foldl(fun(X, Acc) ->
+            end,
+            Furls = lists:foldl(fun(X, Acc) -> 
                                     X ++ Acc
-                                end, [], Urls),
-            ToSend = lists:foldl(fun(X, Str) ->
-                                     case Str of
+                                end, [], NewLinks),
+            ToSend = lists:foldl(fun(X, Str) -> 
+                                     case Str of 
                                          "" -> X;
-                                         _ -> T = "," ++ Str,
-                                                  X ++ T
+                                         _ -> T = "," ++ Str, 
+                                              X ++ T
                                      end
                                  end, "", Furls),
-            httpu:post_http("http://localhost:3000/detritus/receive", ToSend)
-    end,
-    wait().
-
+            httpu:post_http("http://localhost:3000/detritus/receive", ToSend),
+            interface()
+    end. 
 

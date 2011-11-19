@@ -1,0 +1,7 @@
+#include "ladder.h"
+
+
+Item* ll_push(uint16_t midlist[62500])
+{
+
+}

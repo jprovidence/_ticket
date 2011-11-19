@@ -1,4 +1,5 @@
 -module(master).
+-export([start_system/0, program_monitor/2, wait/1]).
 
 %% -----------------------------------------------------------------------------------------
 
@@ -9,7 +10,7 @@ start_system() ->
     Nodes = available_nodes(),
     CurComp = current_computation(),
     CurCount = current_count(),
-    ProgMonitor = spawn(?MODULE, program_monitor, [CurCount]),
+    ProgMonitor = spawn(?MODULE, program_monitor, [CurComp, CurCount]),
     Mstr = spawn(?MODULE, wait, [ProgMonitor]),
     lists:map(fun(X) -> 
                   fully_load(X, CurComp, Mstr)
@@ -34,19 +35,22 @@ fully_load(Node, Computation, Mstr) ->
 %% recursively starts crawl processes on the provided node until the CPU is ~90%
 
 systemwide_crawl(Node, Init, Mstr) when Init =:= true ->
-    NodeName = lists:nth(1, string:tokens(Node, ",")),
+    NameStr = lists:nth(1, string:tokens(Node, ",")),
+    NodeName = list_to_atom(NameStr),
     spawn(NodeName, httpu, init_client, []),
+    spawn(NodeName, cpu_sup, start, []),
     Pid = spawn(NodeName, crawler, crawl, [Mstr]),
-    systemwide_crawl(Node, [Pid]);
+    systemwide_crawl(Node, [Pid], Mstr);
 
 systemwide_crawl(Node, Pids, Mstr) when Pids =/= true ->
-    NodeName = lists:nth(1, string:tokens(Node, ",")),
+    NameStr = lists:nth(1, string:tokens(Node, ",")),
+    NodeName = list_to_atom(NameStr),
     Pid = spawn(NodeName, crawler, crawl, [Mstr]),
     Pid ! {self(), status},
     receive
         {From, {status, Status}} -> 
             case assess_status(lists:nth(2, string:tokens(Node, ",")), Status) of
-                ok -> systemwide_crawl(Node, [Pid|Pids]);
+                ok -> systemwide_crawl(Node, [Pid|Pids], Mstr);
                 break -> Pids
             end
     end.
@@ -56,7 +60,10 @@ systemwide_crawl(Node, Pids, Mstr) when Pids =/= true ->
 
 %% determines whether or not the Node should start new processes based on CPU usage.
 
-assess_status(MaxLoad, Status) ->
+assess_status(StrLoad, Status) ->
+    {MaxLoad, _} = string:to_integer(StrLoad),
+    erlang:display(MaxLoad),
+    erlang:display(Status),
     case (Status < MaxLoad) of
         true -> ok;
         false -> break
@@ -68,7 +75,7 @@ assess_status(MaxLoad, Status) ->
 %% convenience function to load the current state from disk 
 
 current_computation() ->
-    ComAry = fileu:read_by_line("./data/current_computation._ticket"),
+    ComAry = fileu:read_by_line("../data/current_computation._ticket"),
     lists:nth(1, ComAry).
 
 
@@ -76,8 +83,8 @@ current_computation() ->
 
 %% convenience function to load the progress of the current state from disk
 
-current_cout() -> 
-    CouAry = fileu:read_by_line("./data/current_count._ticket"),
+current_count() -> 
+    CouAry = fileu:read_by_line("../data/current_count._ticket"),
     lists:nth(1, CouAry).
 
 
@@ -86,7 +93,7 @@ current_cout() ->
 %% convenience function to load currently available nodes from disk
 
 available_nodes() -> 
-    fileu:read_by_line("./data/nodes._ticket").
+    fileu:read_by_line("../data/nodes._ticket").
 
 
 %% -----------------------------------------------------------------------------------------
@@ -104,8 +111,8 @@ program_monitor(Computation, Ticket) ->
             NewTicket = Ticket + Count,
             case NewTicket < 1000000000 of 
                 true ->
-                    From ! {self(), {progmon, stop, "stitch graph"}]},
-                    program_monitor("stitch graph", 0);
+                    From ! {self(), {progmon, stop, "crawl"}},
+                    program_monitor("crawl", 0);
                 false ->
                     From ! {self(), {progmon, ok}},
                     program_monitor(Computation, NewTicket)

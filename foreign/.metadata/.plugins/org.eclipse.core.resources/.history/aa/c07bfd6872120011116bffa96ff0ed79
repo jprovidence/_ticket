@@ -1,0 +1,81 @@
+#include "ladder.h"
+
+
+Item* initialize(const char* dir_name)
+{
+	glob_t globbuf;
+	char* sorted[20];
+
+	populate(sorted);
+	glob(dir_name, GLOB_ERR, NULL, &globbuf);
+	trivial_sort(&globbuf, sorted);
+	return ll_link(sorted);
+}
+
+
+void trivial_sort(glob_t* pglob, char* sorted[20])
+{
+	int count, icount;
+	char* current_sorted, current_unsorted;
+
+	while(count < pglob->gl_pathc)
+	{
+		current_unsorted = pglob->gl_pathv[count];
+
+		icount = 0;
+		while(icount < count)
+		{
+			current_sorted = sorted[icount];
+
+			if (current_unsorted < current_sorted)
+			{
+				shift_after(icount, sorted);
+				sorted[icount] = current_unsorted;
+			}
+		}
+	}
+}
+
+
+void populate(char* list[20])
+{
+	int i = 0;
+
+	while(i < 20)
+	{
+		list[i] = "zzzzz";
+	}
+}
+
+
+void shift_after(int index, char* list[20])
+{
+	int i;
+
+	for(i = 19; i > 0; i--)
+	{
+		if(i != 19)
+		{
+			list[i + 1] = list[i];
+		}
+		if(i == index)
+		{
+			break;
+		}
+	}
+}
+
+
+//-------------------------------------------------------------------------------------------------
+
+// link two binary lists
+
+Item* ll_link(Item* a, Item* b)
+{
+	a->next = b;
+}
+
+
+//-------------------------------------------------------------------------------------------------
+
+

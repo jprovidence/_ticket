@@ -1,0 +1,130 @@
+#include "ladder.h"
+
+
+SoftItem* initialize(const char* dir_name)
+{
+	glob_t globbuf;
+	char* sorted[20];
+
+	populate(sorted);
+	glob(dir_name, GLOB_ERR, NULL, &globbuf);
+	trivial_sort(&globbuf, sorted);
+	globfree(&globbuf);
+
+	return ll_link(sorted);
+}
+
+
+void trivial_sort(glob_t* pglob, char* sorted[20])
+{
+	int count, icount;
+	char* current_sorted, * current_unsorted;
+
+	while(count < pglob->gl_pathc)
+	{
+		current_unsorted = pglob->gl_pathv[count];
+
+		icount = 0;
+		while(icount < count)
+		{
+			current_sorted = sorted[icount];
+
+			if (strcmp(current_sorted, current_unsorted) > 0)
+			{
+				shift_after(icount, sorted);
+				sorted[icount] = current_unsorted;
+			}
+			icount ++;
+		}
+		count++;
+	}
+}
+
+
+void populate(char* list[20])
+{
+	int i = 0;
+
+	while(i < 20)
+	{
+		list[i] = "zzzzz";
+	}
+}
+
+
+void shift_after(int index, char* list[20])
+{
+	int i;
+
+	for(i = 19; i > 0; i--)
+	{
+		if(i != 19)
+		{
+			list[i + 1] = list[i];
+		}
+		if(i == index)
+		{
+			break;
+		}
+	}
+}
+
+
+//-------------------------------------------------------------------------------------------------
+
+// link two binary lists
+
+SoftItem* ll_link(char* list[20])
+{
+	SoftItem* tlst[20], * psi;
+	int i = 0;
+
+	while(i < 20)
+	{
+		if(strcmp(list[i], "zzzzzz") != 0)
+		{
+			psi = nsoft();
+			psi->disk_location = list[i];
+			tlst[i] = psi;
+		}
+		else
+		{
+			tlst[i + 1] = NULL;
+			break;
+		}
+		i++;
+	}
+
+	i = 0;
+	while(i < 20)
+	{
+		if (tlst[i + 1] == NULL)
+		{
+			break;
+		}
+		else
+		{
+			tlst[i]->soft_next = tlst[i + 1];
+		}
+	}
+
+	return tlst[0];
+}
+
+SoftItem* nsoft()
+{
+	SoftItem* psi = (SoftItem*) malloc(sizeof(SoftItem));
+	return psi;
+}
+
+
+void ksoft(SoftItem* ptr)
+{
+	free(ptr);
+	ptr = NULL;
+}
+
+
+//-------------------------------------------------------------------------------------------------
+
+

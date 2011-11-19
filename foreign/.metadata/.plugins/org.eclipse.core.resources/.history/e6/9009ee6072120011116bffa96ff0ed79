@@ -1,0 +1,30 @@
+/*
+ * ladder.h
+ *
+ *  Created on: 2011-11-18
+ *      Author: providence
+ */
+
+#ifndef LADDER_H_
+#define LADDER_H_
+
+#include <stdlib.h>
+#include <stdint.h>
+#include <glob.h>
+
+struct HardItem
+{
+	uint16_t midlist[62500];
+	struct SoftItem* soft_next;
+	struct HardItem* hard_next;
+};
+typedef struct HardItem HardItem;
+
+struct SoftItem
+{
+	char* disk_location;
+	struct SoftItem* soft_next;
+	struct HardItem* hard_next;
+};
+
+#endif /* LADDER_H_ */

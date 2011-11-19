@@ -1,0 +1,18 @@
+/*
+ * ladder.h
+ *
+ *  Created on: 2011-11-18
+ *      Author: providence
+ */
+
+#ifndef LADDER_H_
+#define LADDER_H_
+
+
+struct Item
+{
+	uint16_t blist[];
+};
+
+
+#endif /* LADDER_H_ */

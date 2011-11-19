@@ -1,4 +1,5 @@
 -module(crawler).
+-export([crawl/1]).
 
 
 %% -----------------------------------------------------------------------------------------
@@ -7,8 +8,9 @@
 %% to see if shutdown is received or crawl state terminated
 
 crawl(Master) ->
-    Interface = spawn(?MODULE, interface, []),
-    Interace ! {self(), {link_request, 1000}}
+    erlang:display("crawler booting up"),
+    Interface = spawn(interface, interface, []),
+    Interface ! {self(), {link_request, 1000}},
     crawl(Master, Interface).
 
 crawl(Master, Interface) ->
@@ -16,6 +18,9 @@ crawl(Master, Interface) ->
         shutdown ->
             Interface ! shutdown,
             ok;
+        {From, status} ->
+            Cpu = cpu_sup:avg5(),
+            From ! {self(), {status, Cpu}};
         {From, ok} -> 
             Interface ! {self(), {link_request, 1000}};
         {From, stop} -> 

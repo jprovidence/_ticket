@@ -1,0 +1,10 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include "ladder.h"
+
+int main(void)
+{
+	SoftItem* psi = initialize("/home/providence/mindterm");
+	printf("Directory is %s \n", psi->disk_location);
+	exit(EXIT_SUCCESS);
+}

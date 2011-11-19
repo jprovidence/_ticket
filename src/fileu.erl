@@ -1,4 +1,5 @@
 -module(fileu).
+-export([read_by_line/1, write_by_line/2]).
 
 %% -----------------------------------------------------------------------------------------
 
@@ -20,6 +21,17 @@ perform_read(Lines, File) ->
         {ok, Line} -> 
             perform_read([Line|Lines], File);
         eof ->
-            lists:map(fun(X) -> string:strip(X, right, $\n) end, Lines),
-            lists:reverse(Lines)
+            Slines = lists:map(fun(X) -> string:strip(X, right, $\n) end, Lines),
+            lists:reverse(Slines)
     end.
+
+
+%% -----------------------------------------------------------------------------------------
+
+%% writes to a file
+
+write_by_line(Filename, Str) -> 
+    {ok, File} = file:open(Filename, [write]),
+    io:format(File, Str),
+    file:close(File).
+    

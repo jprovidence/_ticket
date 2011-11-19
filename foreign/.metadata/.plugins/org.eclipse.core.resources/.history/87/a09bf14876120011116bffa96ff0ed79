@@ -1,9 +1,0 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include "ladder.h"
-
-int main(void)
-{
-	initialize("/home/providence/mindterm");
-	exit(EXIT_SUCCESS);
-}

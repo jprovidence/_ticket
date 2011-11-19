@@ -1,7 +1,0 @@
-#include "ladder.h"
-
-
-Item* ll_link(uint16_t a[62500], uint16_t b[62500])
-{
-
-}

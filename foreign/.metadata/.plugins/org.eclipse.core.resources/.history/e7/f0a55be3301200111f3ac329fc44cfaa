@@ -1,7 +1,0 @@
-#include "ladder.h"
-
-
-struct Item* ll_push()
-{
-
-}

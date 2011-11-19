@@ -1,7 +1,0 @@
-#include "ladder.h"
-
-
-Item* ll_link(Item* a, Item* b)
-{
-
-}

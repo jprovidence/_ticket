@@ -2,5 +2,5 @@ ebin
 data
 deps
 *.beam
-foreign/render/Debug
+foreign
 

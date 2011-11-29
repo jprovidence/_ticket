@@ -7,9 +7,9 @@
 %% coordinates crawling of links. Crawls links in batches of 1000, checking with Master
 %% to see if shutdown is received or crawl state terminated
 
-crawl(Master) ->
+crawl({Master, Aggregator}) ->
     erlang:display("crawler booting up"),
-    Interface = spawn(interface, interface, []),
+    Interface = spawn(interface, interface, [Aggregator]),
     Interface ! {self(), {link_request, 1000}},
     crawl(Master, Interface).
 
@@ -20,9 +20,11 @@ crawl(Master, Interface) ->
             ok;
         {From, status} ->
             Cpu = cpu_sup:avg5(),
-            From ! {self(), {status, Cpu}};
+            From ! {self(), {status, Cpu}},
+            crawl(Master, Interface);
         {From, ok} -> 
-            Interface ! {self(), {link_request, 1000}};
+            Interface ! {self(), {link_request, 1000}},
+            crawl(Master, Interface);
         {From, stop} -> 
             Interface ! shutdown,
             ok;
@@ -44,7 +46,10 @@ do_process(Urls, Interface) ->
     NewLinks = lists:map(fun(X) -> 
                              reduce_html(X)
                          end, Html),
-    Interface ! {self(), {crawled, {NewLinks, Xml}}}.
+    Interface ! {self(), {crawled, {NewLinks, Xml}}},
+    receive
+        {From, {crawled, ok}} -> ok
+    end.
 
 
 %% -----------------------------------------------------------------------------------------
@@ -129,8 +134,7 @@ find_url_root(Url) ->
         {match, [{_, _}, {_, Stop}]} -> {Root, _} = lists:split(Stop, Url);
         _ -> Root = []
     end,
-    Root.
-                                
+    Root.                      
 
 
 %% -----------------------------------------------------------------------------------------

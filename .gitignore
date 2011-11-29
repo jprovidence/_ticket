@@ -2,5 +2,6 @@ ebin
 data
 deps
 *.beam
+sqlite3.o
 foreign
-
+priv

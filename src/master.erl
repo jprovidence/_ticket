@@ -1,178 +1,91 @@
 -module(master).
--export([start_system/0, program_monitor/2, wait/2]).
+-export([start_up/0, wait_serve_crawl_data/5, create_db/0, seed_db/0]).
 
-%% -----------------------------------------------------------------------------------------
-
-%% load the available machine list from disk. Load the current computation.
-%% start ProgamMonitor, which oversees switching between 'States'. 
-
-start_system() -> 
-    Nodes = available_nodes(),
-    CurComp = current_computation(),
-    CurCount = current_count(),
-    ProgMonitor = spawn(?MODULE, program_monitor, [CurComp, CurCount]),
-    Mstr = spawn(?MODULE, wait, [ProgMonitor, CurComp]),
-    Aggregator = spawn(aggregator, start_c_node, []),
-    lists:map(fun(X) -> 
-                  fully_load(X, CurComp, Mstr, Aggregator)
-              end, Nodes),
-    Mstr.
+start_up() ->
+    {CrawlerNodes, CrawlMax, Cip, Cport} = read_config(),
+    CrawlerPids = lists:map(fun(X) ->
+                                Node = list_to_atom(lists:nth(1, string:tokens(X, ","))),
+                                Capacity = list_to_integer(lists:nth(2, string:tokens(X, ","))),
+                                spawn(Node, crawler, initialize_crawlers, [Capacity])
+                            end, CrawlerNodes),
+    register_crawl_data_process(CrawlerNodes, CrawlerPids, CrawlMax, Cip, Cport),
+    register_master_process(),
+    erlang:display("_ticket: Master Initialization Complete @ " ++ atom_to_list(node()) ++ "."),
+    assume_master_role().
 
 
-%% -----------------------------------------------------------------------------------------
-
-%% collapses the initialisation/transition superposition based on the
-%% provided directive @Computation@" 
-
-fully_load(Node, Computation, Mstr, Aggregator) ->
-    case Computation of
-        "crawl" -> 
-            systemwide_crawl(Node, true, {Mstr, Aggregator})
-    end.
+register_master_process() ->
+    register(master_process, self()).
 
 
-%% -----------------------------------------------------------------------------------------
-
-%% recursively starts crawl processes on the provided node until the CPU is ~90%
-
-systemwide_crawl(Node, Init, {Mstr, Aggregator}) when Init =:= true ->
-    NameStr = lists:nth(1, string:tokens(Node, ",")),
-    NodeName = list_to_atom(NameStr),
-    spawn(NodeName, httpu, init_client, []),
-    spawn(NodeName, cpu_sup, start, []),
-    Pid = spawn(NodeName, crawler, crawl, [{Mstr, Aggregator}]),
-    systemwide_crawl(Node, [Pid], {Mstr, Aggregator});
-
-systemwide_crawl(Node, Pids, {Mstr, Aggregator}) when Pids =/= true ->
-    NameStr = lists:nth(1, string:tokens(Node, ",")),
-    NodeName = list_to_atom(NameStr),
-    Pid = spawn(NodeName, crawler, crawl, [{Mstr, Aggregator}]),
-    timer:sleep(300000),
-    Pid ! {self(), status},
-    receive
-        {From, {status, Status}} -> 
-            case assess_status(lists:nth(2, string:tokens(Node, ",")), Status) of
-                ok -> systemwide_crawl(Node, [Pid|Pids], {Mstr, Aggregator});
-                break -> Pids
-            end
-    end.
+register_crawl_data_process(CrawlerNodes, CrawlerPids, CrawlMax, Cip, Cport) ->
+    Pid = spawn(?MODULE, wait_serve_crawl_data, [CrawlerNodes, CrawlerPids, CrawlMax, Cip, Cport]),
+    register(crawl_data_process, Pid).
 
 
-%% -----------------------------------------------------------------------------------------
-
-%% determines whether or not the Node should start new processes based on CPU usage.
-
-assess_status(StrLoad, Status) ->
-    {MaxLoad, _} = string:to_integer(StrLoad),
-    erlang:display(MaxLoad),
-    erlang:display(Status),
-    case (Status < MaxLoad) of
-        true -> ok;
-        false -> break
-    end.
-
-
-%% -----------------------------------------------------------------------------------------
-
-%% convenience function to load the current state from disk 
-
-current_computation() ->
-    ComAry = fileu:read_by_line("../data/current_computation._ticket"),
-    lists:nth(1, ComAry).
-
-
-%% -----------------------------------------------------------------------------------------
-
-%% convenience function to load the progress of the current state from disk
-
-current_count() -> 
-    CouAry = fileu:read_by_line("../data/current_count._ticket"),
-    lists:nth(1, CouAry).
-
-
-%% -----------------------------------------------------------------------------------------
-
-%% convenience function to load currently available nodes from disk
-
-available_nodes() -> 
-    fileu:read_by_line("../data/nodes._ticket").
-
-
-%% -----------------------------------------------------------------------------------------
-
-%% this function loops in its own process. It coordinates transitions between
-%% computational states
-
-program_monitor(Computation, Ticket) ->
+wait_serve_crawl_data(CrawlerNodes, CrawlerPids, CrawlMax, Cip, Cport) ->
     receive
         shutdown -> 
             ok;
-        {From, ticket} -> 
-            From ! {From, {ticket, Computation, Ticket}};
-        {From, {crawler, Count}} ->
-            NewTicket = Ticket + Count,
-            case NewTicket > 1000000 of 
-                true ->
-                    From ! {self(), {progmon, stop, "crawl"}},
-                    program_monitor("crawl", 0);
-                false ->
-                    From ! {self(), {progmon, ok}},
-                    program_monitor(Computation, NewTicket)
+        {From, crawler_nodes} ->
+            From ! {self(), {crawler_nodes, CrawlerNodes}},
+            wait_serve_crawl_data(CrawlerNodes, CrawlerPids, CrawlMax, Cip, Cport);
+        {From, crawler_pids} ->
+            From ! {self(), {crawler_pids, CrawlerPids}},
+            wait_serve_crawl_data(CrawlerNodes, CrawlerPids, CrawlMax, Cip, Cport);
+        {From, crawl_max} ->
+            From ! {self(), {crawl_max, CrawlMax}},
+            wait_serve_crawl_data(CrawlerNodes, CrawlerPids, CrawlMax, Cip, Cport);
+        {From, cip} ->
+            From ! {self(), {cip, Cip}},
+            wait_serve_crawl_data(CrawlerNodes, CrawlerPids, CrawlMax, Cip, Cport);
+        {From, cport} ->
+            From ! {self(), {cport, Cport}},
+            wait_serve_crawl_data(CrawlerNodes, CrawlerPids, CrawlMax, Cip, Cport)
+      end.
+
+
+read_config() ->
+    CrawlerNodes = fileu:read_by_line("../data/crawl_nodes._ticket"),
+    CrawlMax = list_to_integer(lists:nth(1, fileu:read_by_line("../data/crawl_max._ticket"))),
+    Cdata = lists:nth(1, fileu:read_by_line("../data/cdata._ticket")),
+    CIP = lists:nth(1, string:tokens(Cdata, ",")),
+    Cport = lists:nth(2, string:tokens(Cdata, ",")),
+    {CrawlerNodes, CrawlMax, CIP, Cport}.
+
+
+create_db() ->
+    sqlite3:open(temp_html, ["/home/providence/Dropbox/_ticket/_ticket/data/temp_html.db"]),
+    TableData = [{id, integer, [{primary_key, [asc, autoincrement]}]}, 
+                 {url, text, [not_null]}, 
+                 {processed, integer, [not_null]}],
+    ok = sqlite3:create_table(temp_html, html, TableData),
+    ok = sqlite3:create_table(temp_html, xml, TableData),
+    sqlite3:close(temp_html),
+    erlang:display("_ticket: Database initialized.").
+
+
+seed_db() ->
+    Seeds = fileu:read_by_line("../data/database_seed._ticket"),
+    sqlite3:open(temp_html, ["/home/providence/Dropbox/_ticket/_ticket/data/temp_html.db"]),
+    lists:map(fun(X) ->
+                  sqlite3:write(temp_html, html, [{url, X}, {processed, 0}])
+              end, Seeds),
+    sqlite3:close(temp_html),
+    erlang:display("_ticket: Database seeded.").
+
+
+assume_master_role() ->
+    receive
+        shutdown ->
+            crawl_data_process ! {self(), crawler_pids},
+            crawl_data_process ! shutdown,
+            receive
+                {_, {crawler_pids, CrawlerPids}} ->
+                    lists:map(fun(X) ->
+                                  X ! shutdown
+                              end, CrawlerPids)
             end
     end.
 
 
-%% -----------------------------------------------------------------------------------------
-
-%% Serves as a commuication channel between the user and system, monitor and individual 
-%% processes, etc... 
-
-wait(ProgMon, Mode) when Mode =/= shutdown ->
-    receive
-        shutdown ->
-            perform_shutdown(ProgMon),
-            wait(ProgMon, shutdown);
-
-        {From, {crawler, Count}} ->
-            case Mode of
-                "crawl" ->
-                    ProgMon ! {self(), {crawl, Count}},
-                    receive
-                        {_, {progmon, ok}} -> 
-                            From ! {self(), ok};
-                        {_, {progmon, stop, NewTask}} ->
-                            From ! {self(), stop},
-                            Mode = NewTask,
-                            lists:map(fun(X) -> 
-                                          fully_load(X, NewTask, self(), self()) %% THIS IS NOT CORRECT
-                                      end, available_nodes())
-                    end;
-                _ ->
-                    From ! {self(), stop}
-            end
-    end,
-    wait(ProgMon, Mode);
-
-wait(ProgMon, Shutdown) when Shutdown =:= shutdown->
-    receive
-        {From, _} -> From ! shutdown
-    end,
-    wait(ProgMon, shutdown).
-
-
-%% -----------------------------------------------------------------------------------------
-
-%% shuts down all ProgMon, saves current state and progress 
-
-perform_shutdown(ProgMon) ->
-    Ticket = ProgMon ! {self(), ticket},
-    receive
-        {_, {ticket, Computation, Ticket}} -> 
-            fileu:write_by_line("./data/current_computation._ticket", Computation),
-            fileu:write_by_line("./data/current_count._ticket", Ticket)
-    end,
-    ProgMon ! shutdown.
-
-
-
-    

@@ -5,8 +5,15 @@
 
 %% reads the given file, returns list of all lines
 
-read_by_line(Filename) -> 
-    {ok, File} = file:open(Filename, [raw, read, read_ahead]),
+read_by_line(Filename) ->
+    Result = file:open(Filename, [raw, read, read_ahead]),
+    case Result of
+        {error, Reason} ->
+            erlang:display(Reason),
+            File = "";
+        {ok, X} -> 
+             File = X
+    end,
     Lines = perform_read([], File),
     file:close(File),
     Lines.

@@ -16,8 +16,8 @@ init_client() ->
 %% retrieves headers and body from a url
 
 get_http(Url) -> 
-    {ok, {{HttpVer, Code, Msg}, Headers, Body}} = http:request(get, {Url, [{"User-Agent", ?UA}]},
-        [{relaxed, true}, {timeout, 60000}], []),
+    {ok, {{_, _, _}, Headers, Body}} = http:request(get, {Url, [{"User-Agent", ?UA}]},
+        [{relaxed, true}, {timeout, 5000}], []),
     {Headers, Body}.
 
 
@@ -26,7 +26,7 @@ get_http(Url) ->
 %% specifically retrieves json via a get request
 
 get_json_http(Url) ->
-    {ok, {{HttpVer, Code, Msg}, Headers, Body}} = http:request(get, {Url, [{"User-Agent", ?UA}, 
+    {ok, {{_, _, _}, Headers, Body}} = http:request(get, {Url, [{"User-Agent", ?UA}, 
         {"Accept", "application/json"}]}, [], []),
     {Headers, Body}.
 

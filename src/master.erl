@@ -2,56 +2,66 @@
 -export([start_up/0, wait_serve_crawl_data/5, create_db/0, seed_db/0]).
 
 start_up() ->
-    {CrawlerNodes, CrawlMax, Cip, Cport} = read_config(),
+    {CrawlerNodes, CrawlMax, HaskellNode} = read_config(),
+    register_haskell_node(HaskellNode),
     CrawlerPids = lists:map(fun(X) ->
                                 Node = list_to_atom(lists:nth(1, string:tokens(X, ","))),
                                 Capacity = list_to_integer(lists:nth(2, string:tokens(X, ","))),
                                 spawn(Node, crawler, initialize_crawlers, [Capacity])
                             end, CrawlerNodes),
-    register_crawl_data_process(CrawlerNodes, CrawlerPids, CrawlMax, Cip, Cport),
+    register_crawl_data_process(CrawlerNodes, CrawlerPids, CrawlMax, HaskellNode),
     register_master_process(),
     erlang:display("_ticket: Master Initialization Complete @ " ++ atom_to_list(node()) ++ "."),
     assume_master_role().
+
+
+register_haskell_node(NodeName) ->
+    Pid = spawn(NodeName, ?MODULE, proxy_haskell, []),
+    register(haskell_node, Pid).
+
+
+proxy_haskell() ->
+    receive
+        shutdown ->
+            ok;
+        {From, {xml, Xml}} ->
+            From ! {self(), {haskell, ok}}
+    end.
 
 
 register_master_process() ->
     register(master_process, self()).
 
 
-register_crawl_data_process(CrawlerNodes, CrawlerPids, CrawlMax, Cip, Cport) ->
-    Pid = spawn(?MODULE, wait_serve_crawl_data, [CrawlerNodes, CrawlerPids, CrawlMax, Cip, Cport]),
+register_crawl_data_process(CrawlerNodes, CrawlerPids, CrawlMax, HaskellNode) ->
+    Pid = spawn(?MODULE, wait_serve_crawl_data, [CrawlerNodes, CrawlerPids, CrawlMax, HaskellNode]),
     register(crawl_data_process, Pid).
 
 
-wait_serve_crawl_data(CrawlerNodes, CrawlerPids, CrawlMax, Cip, Cport) ->
+wait_serve_crawl_data(CrawlerNodes, CrawlerPids, CrawlMax, HaskellNode) ->
     receive
         shutdown -> 
             ok;
         {From, crawler_nodes} ->
             From ! {self(), {crawler_nodes, CrawlerNodes}},
-            wait_serve_crawl_data(CrawlerNodes, CrawlerPids, CrawlMax, Cip, Cport);
+            wait_serve_crawl_data(CrawlerNodes, CrawlerPids, CrawlMax, HaskellNode);
         {From, crawler_pids} ->
             From ! {self(), {crawler_pids, CrawlerPids}},
-            wait_serve_crawl_data(CrawlerNodes, CrawlerPids, CrawlMax, Cip, Cport);
+            wait_serve_crawl_data(CrawlerNodes, CrawlerPids, CrawlMax, HaskellNode);
         {From, crawl_max} ->
             From ! {self(), {crawl_max, CrawlMax}},
-            wait_serve_crawl_data(CrawlerNodes, CrawlerPids, CrawlMax, Cip, Cport);
-        {From, cip} ->
-            From ! {self(), {cip, Cip}},
-            wait_serve_crawl_data(CrawlerNodes, CrawlerPids, CrawlMax, Cip, Cport);
-        {From, cport} ->
-            From ! {self(), {cport, Cport}},
-            wait_serve_crawl_data(CrawlerNodes, CrawlerPids, CrawlMax, Cip, Cport)
+            wait_serve_crawl_data(CrawlerNodes, CrawlerPids, CrawlMax, HaskellNode);
+        {From, haskell_node} ->
+            From ! {self(), {haskell_node, HaskellNode}},
+            wait_serve_crawl_data(CrawlerNodes, CrawlerPids, CrawlMax, HaskellNode)
       end.
 
 
 read_config() ->
     CrawlerNodes = fileu:read_by_line("../data/crawl_nodes._ticket"),
     CrawlMax = list_to_integer(lists:nth(1, fileu:read_by_line("../data/crawl_max._ticket"))),
-    Cdata = lists:nth(1, fileu:read_by_line("../data/cdata._ticket")),
-    CIP = lists:nth(1, string:tokens(Cdata, ",")),
-    Cport = lists:nth(2, string:tokens(Cdata, ",")),
-    {CrawlerNodes, CrawlMax, CIP, Cport}.
+    HaskellNode = list_to_atom(lists:nth(1, fileu:read_by_line("../data/haskell_node._ticket"))),
+    {CrawlerNodes, CrawlMax, HaskellNode}.
 
 
 create_db() ->

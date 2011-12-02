@@ -101,7 +101,21 @@ crawl_master(Crawlers, CurrentCount) ->
     
 
 clear_database() ->
-    ok.
+    sqlite3:open(temp_html, []),
+    sqlite3:sql_exec(temp_html, "DELETE FROM html WHERE processed=1;"),
+    [_, {rows, Rows}] = sqlite3:sql_exec(temp_html,
+                        "SELECT * FROM xml WHERE processed=0 ORDER BY id ASC;"),
+    Xml = lists:map(fun({_, X, _}) -> 
+                        X
+                    end, Rows),
+    lists:map(fun(Id, _, _)) ->
+                  sqlite3:sql_exec(temp_html, "DELETE FROM xml WHERE id=?", [{1, Id}]
+              end, Rows),
+    sqlite3:close(temp_html),
+    haskell_node ! {self(), {xml, Xml}},
+    receive
+        {_, {haskell, ok}} -> ok
+    end.
 
 
 %% -----------------------------------------------------------------------------------------
